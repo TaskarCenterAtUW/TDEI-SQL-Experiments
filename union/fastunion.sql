@@ -283,7 +283,7 @@ DROP TABLE IF EXISTS UnionNodes;
 CREATE TEMP Table UnionNodes AS
 SELECT DISTINCT 
     pw.source,
-	pw.cluster_id as element_id,
+    pw.cluster_id as element_id,
     pw.cluster_geom AS geom
 FROM PointToWitness pw
 ;
