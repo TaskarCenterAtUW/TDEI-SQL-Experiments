@@ -239,7 +239,7 @@ Witness AS (
   ORDER BY c.cluster_id, s.source --
   --GROUP BY c.cluster_id
 ),
--- Step 3.5: Map every point to its witness point
+-- Map every point to its witness point
 -- source, id, element_id, and element_sub_id are the original point
 -- cluster_id, cluster_geom are the new cluster witness which replaces the original 
 -- SELECT DISTINCT cluster_id, cluster_geom FROM PointToWitness
@@ -248,10 +248,10 @@ PointToWitness AS (
   SELECT 
     s.source,
     s.id,
-	s.element_id,
-	s.element_sub_id,
+    s.element_id,
+    s.element_sub_id,
     s.geom,
-	w.cluster_id,
+    w.cluster_id,
     w.cluster_geom AS cluster_geom
   FROM MaterializedPoints s
   JOIN Canonical c ON s.id = c.id
