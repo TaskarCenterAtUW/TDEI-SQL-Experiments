@@ -8,7 +8,7 @@ conn = psycopg2.connect(
     port=5432,
     dbname="tdei",
     user="bill",
-    password="b1ll"
+    password="<SET PASSWORD>"
 )
 
 # --- STEP 2: Run the hardcoded ZIP query ---
