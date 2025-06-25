@@ -14,8 +14,14 @@ SET SEARCH_PATH=content, public;
 DROP TABLE IF EXISTS testdataset;
 CREATE TEMP TABLE testdataset as (
 	SELECT d.name, d.tdei_dataset_id 
-	FROM  dataset d
-	where d.name LIKE '%Toppen%' 
+	FROM dataset d
+--	where d.name like '%UC5%'
+	where d.tdei_dataset_id = '082ee4b3-40a6-484c-a19f-8a5f2fdb869b' 
+	OR d.tdei_dataset_id = '9e4a9ad5-de52-4c39-a375-0307cef4cb58'
+
+-- Dev medium-sized test:
+--Portland Sidewalks | 082ee4b3-40a6-484c-a19f-8a5f2fdb869b | 43664 nodes | 45149 edges
+--Multnomah County Prophet Predictions | 9e4a9ad5-de52-4c39-a375-0307cef4cb58| 178014 nodes | 193373 edges
 );
 
 -- Find the nodes in the test datsets
@@ -57,8 +63,6 @@ CREATE TEMP TABLE testedgepoints as (
 		dp.geom
   FROM testedges path, ST_DumpPoints(path.geom) dp
 );
-
-
 
 
 -- =================================================
@@ -187,6 +191,11 @@ CREATE TEMP TABLE Neighbors AS
   JOIN MaterializedPoints b ON ST_DWithin(a.geom, b.geom, 0.00004)  -- Tolerance: nodes within this distance should be clustered
   AND a.id < b.id;
 
+DROP INDEX IF EXISTS idx_neighbors;
+CREATE INDEX idx_neighbors ON Neighbors (id1, id2);
+--DROP INDEX IF EXISTS idx_neighbors2;
+--CREATE INDEX idx_neighbors2 ON Neighbors (id2, id1);
+
 
 -- ====================================
 -- Step 3: Recursive friend-of-friend closure: keep joining until 
@@ -205,7 +214,8 @@ Clusters(id1, id2) AS (
 )
 SELECT * FROM Clusters;
 
-
+DROP INDEX IF EXISTS idx_clusters_id2;
+CREATE INDEX idx_clusters_id2 ON Clusters (id2, id1);
 
 -- ====================================
 -- Step 4: Assign cluster representatives
@@ -226,8 +236,11 @@ Canonical AS (
   GROUP BY id2
   UNION ALL
   -- include singleton clusters (points that are not within tolerance of any other point)
-  SELECT id, id FROM MaterializedPoints
-  WHERE id NOT IN (SELECT id2 FROM Clusters)
+  SELECT id, id FROM (
+	  SELECT id FROM MaterializedPoints
+	  EXCEPT 
+	  SELECT id2 FROM Clusters
+  ) x
 ),
 -- Determine one witness point per cluster 
 -- (chooses minimum source currently. Could do centroid, or any other conditions)
@@ -239,7 +252,7 @@ Witness AS (
   ORDER BY c.cluster_id, s.source --
   --GROUP BY c.cluster_id
 ),
--- Map every point to its witness point
+-- Step 3.5: Map every point to its witness point
 -- source, id, element_id, and element_sub_id are the original point
 -- cluster_id, cluster_geom are the new cluster witness which replaces the original 
 -- SELECT DISTINCT cluster_id, cluster_geom FROM PointToWitness
@@ -248,10 +261,10 @@ PointToWitness AS (
   SELECT 
     s.source,
     s.id,
-    s.element_id,
-    s.element_sub_id,
+	s.element_id,
+	s.element_sub_id,
     s.geom,
-    w.cluster_id,
+	w.cluster_id,
     w.cluster_geom AS cluster_geom
   FROM MaterializedPoints s
   JOIN Canonical c ON s.id = c.id
@@ -264,6 +277,7 @@ SELECT * FROM PointToWitness;
 -- ====================================
 -- Step 5: Return output nodes and edges
 -- ====================================
+
 
 -- get all the points associated with an edge (we tracked element_id for this purpose)
 DROP TABLE IF EXISTS UnionEdges;
@@ -283,7 +297,7 @@ DROP TABLE IF EXISTS UnionNodes;
 CREATE TEMP Table UnionNodes AS
 SELECT DISTINCT 
     pw.source,
-    pw.cluster_id as element_id,
+	pw.cluster_id as element_id,
     pw.cluster_geom AS geom
 FROM PointToWitness pw
 ;
