@@ -193,8 +193,6 @@ CREATE TEMP TABLE Neighbors AS
 
 DROP INDEX IF EXISTS idx_neighbors;
 CREATE INDEX idx_neighbors ON Neighbors (id1, id2);
---DROP INDEX IF EXISTS idx_neighbors2;
---CREATE INDEX idx_neighbors2 ON Neighbors (id2, id1);
 
 
 -- ====================================
@@ -214,8 +212,8 @@ Clusters(id1, id2) AS (
 )
 SELECT * FROM Clusters;
 
-DROP INDEX IF EXISTS idx_clusters_id2;
-CREATE INDEX idx_clusters_id2 ON Clusters (id2, id1);
+--DROP INDEX IF EXISTS idx_clusters_id2;
+--CREATE INDEX idx_clusters_id2 ON Clusters (id2, id1);
 
 -- ====================================
 -- Step 4: Assign cluster representatives
@@ -302,6 +300,28 @@ SELECT DISTINCT
 FROM PointToWitness pw
 ;
  --=====================================
+
+-- Zones are considered distinct from edges and nodes:
+-- there is no requirement that they share nodes.
+-- So we can simply compute the union of all zones that overlap
+-- That is: For each input zone, find all zones that intersect it. 
+-- Then compute the union of those zones.  This strategy is not the only
+-- one appropriate, but it's reasonable to avoid overlaps. 
+
+-- Invariant: UnionZones will contain no intersecting zones in the output, even 
+-- if a single dataset included intersecting zones in the input.
+-- 
+ DROP TABLE IF EXISTS UnionZones;
+ CREATE TEMP TABLE UnionZones AS 
+ WITH testzones as (
+	SELECT d.name, z.id, z.zone_loc
+	FROM testdataset d, zone z 
+	where d.tdei_dataset_id = z.tdei_dataset_id 
+)
+SELECT z1.id, z1.zone_loc, ST_UNION(z2.zone_loc)
+FROM testzones z1, testzones z2
+WHERE ST_intersects(z1.zone_loc, z2.zone_loc)
+GROUP BY z1.id, z1.zone_loc;
 
 -- show test output
  SELECT * FROM UnionEdges;
