@@ -1,5 +1,6 @@
 SET SEARCH_PATH=content, public;
 
+
 -- =========================================
 --- Preparing Test; can be removed --
 -- =========================================
@@ -15,9 +16,7 @@ DROP TABLE IF EXISTS testdataset;
 CREATE TEMP TABLE testdataset as (
 	SELECT d.name, d.tdei_dataset_id 
 	FROM dataset d
---	where d.name like '%UC5%'
-	where d.tdei_dataset_id = '082ee4b3-40a6-484c-a19f-8a5f2fdb869b' 
-	OR d.tdei_dataset_id = '9e4a9ad5-de52-4c39-a375-0307cef4cb58'
+    where d.name in ('Zones_test2', 'Zones_test4')
 
 -- Dev medium-sized test:
 --Portland Sidewalks | 082ee4b3-40a6-484c-a19f-8a5f2fdb869b | 43664 nodes | 45149 edges
@@ -34,12 +33,13 @@ CREATE TEMP TABLE testnodes as (
 		-- for nodes and edges, there is no sub_id (it's always 0)
 		-- for internal line string nodes, there is a sub_id (see below)
 		0 as element_sub_id, 
+		0 as element_sub_sub_id,
 		n.node_loc as geom 
 	from node n, testdataset d
 	where n.tdei_dataset_id = d.tdei_dataset_id
 );
 
--- Find the edges in the test datsets
+-- Find the edges in the test datasets
 DROP TABLE IF EXISTS testedges;
 CREATE TEMP TABLE testedges as (
 	select 	
@@ -51,6 +51,19 @@ CREATE TEMP TABLE testedges as (
 );
 
 
+-- Find the zones in the test datasets
+DROP TABLE IF EXISTS testzones;
+CREATE TEMP TABLE testzones as (
+	select 	
+		d.name as source, 
+		z.id as element_id, 
+		z.zone_loc as geom
+	from zone z, testdataset d
+	where z.tdei_dataset_id = d.tdei_dataset_id
+);
+
+
+
 -- Find the *internal* nodes for the edges in the test datasets
 DROP TABLE IF EXISTS testedgepoints;
 CREATE TEMP TABLE testedgepoints as (
@@ -58,10 +71,27 @@ CREATE TEMP TABLE testedgepoints as (
   		path.source, 
   		path.element_id,
 		-- sub id indicates the order or the internal nodes.  
-		-- Begins with 1 (not 0, which is important)
+		-- Begins with 1 
         dp.path[1] AS element_sub_id,
+		0 as element_sub_sub_id, -- for polygon rings
 		dp.geom
   FROM testedges path, ST_DumpPoints(path.geom) dp
+);
+
+
+
+-- Find the *internal* nodes for the zones in the test datasets
+DROP TABLE IF EXISTS testzonepoints;
+CREATE TEMP TABLE testzonepoints as (
+  SELECT 
+  		z.source, 
+  		z.element_id,
+		-- sub id indicates the order or the internal nodes.  
+		-- Begins with 1 (not 0, which is important)
+   		p.path[1] AS element_sub_id,         -- 1 = outer, 2+ = holes
+		p.path[2] as element_sub_sub_id, -- for polygon rings
+        p.geom
+  FROM testzones z, LATERAL ST_DumpPoints(geom) p
 );
 
 
@@ -88,23 +118,28 @@ SELECT
 	source, 
 	element_id, 
 	element_sub_id, 
+    element_sub_sub_id, 
 	geom
 FROM testnodes
 UNION
--- From internal linestring nodes
+-- From internal linestring nodes (may be redundant, hence union)
+SELECT
+	source, 
+	element_id, 
+	element_sub_id, 
+    element_sub_sub_id, 
+	geom 
+FROM testedgepoints
+UNION
+-- From internal polygon nodes (may be redundant, hence union)
 SELECT 
 	source, 
 	element_id, 
 	element_sub_id, 
+    element_sub_sub_id, 
 	geom 
-FROM testedgepoints;
+FROM testzonepoints;
 
-
--- Paths is just testedges for us
-DROP TABLE IF EXISTS Path;
-CREATE TEMP TABLE Path as (
-   SELECT * FROM testedges
-);
 
 
 -- =========================================
@@ -169,9 +204,9 @@ CREATE TEMP TABLE Path as (
 
 DROP TABLE IF EXISTS MaterializedPoints;
 CREATE TEMP TABLE MaterializedPoints AS
-  SELECT source, element_id, element_sub_id, geom,
+  SELECT source, element_id, element_sub_id, element_sub_sub_id, geom,
   		 -- construct new ids for each node (could use cantor pairing function here)
-         row_number() OVER (ORDER BY element_id, element_sub_id) as id
+         row_number() OVER (ORDER BY element_id, element_sub_id, element_sub_sub_id) as id
   FROM AllPoints;
 
 -- CREATE spatial INDEX on materialized nodes -- must use for performance!
@@ -261,6 +296,7 @@ PointToWitness AS (
     s.id,
 	s.element_id,
 	s.element_sub_id,
+	s.element_sub_sub_id,
     s.geom,
 	w.cluster_id,
     w.cluster_geom AS cluster_geom
@@ -283,7 +319,7 @@ CREATE TEMP TABLE UnionEdges AS
   SELECT p.source, p.element_id, 
          p.geom as oldgeom,
          ST_MakeLine(ARRAY_AGG(w.cluster_geom ORDER BY w.element_sub_id)) AS newgeom
-  FROM Path p, PointToWitness w
+  FROM testedges p, PointToWitness w
   WHERE p.element_id = w.element_id
   GROUP BY p.source, p.element_id,p.geom
 ;
@@ -301,27 +337,56 @@ FROM PointToWitness pw
 ;
  --=====================================
 
--- Zones are considered distinct from edges and nodes:
--- there is no requirement that they share nodes.
--- So we can simply compute the union of all zones that overlap
--- That is: For each input zone, find all zones that intersect it. 
--- Then compute the union of those zones.  This strategy is not the only
--- one appropriate, but it's reasonable to avoid overlaps. 
 
--- Invariant: UnionZones will contain no intersecting zones in the output, even 
--- if a single dataset included intersecting zones in the input.
--- 
- DROP TABLE IF EXISTS UnionZones;
- CREATE TEMP TABLE UnionZones AS 
- WITH testzones as (
-	SELECT d.name, z.id, z.zone_loc
-	FROM testdataset d, zone z 
-	where d.tdei_dataset_id = z.tdei_dataset_id 
+DROP TABLE IF EXISTS UnionZones;
+CREATE TEMP TABLE UnionZones AS
+WITH 
+-- Step 1: Reaggregate witness points to build new rings as a LINESTRING
+ring_lines AS (
+  SELECT p.source, p.element_id, p.element_sub_id,
+         ST_MakeLine(p.geom ORDER BY p.element_sub_sub_id) AS old_ring_geom,
+         ST_MakeLine(w.geom ORDER BY w.element_sub_sub_id) AS new_ring_geom
+  FROM testzonepoints p, PointToWitness w
+  WHERE p.element_id = w.element_id 
+    AND p.element_sub_id = w.element_sub_id
+	AND p.element_sub_sub_id = w.element_sub_sub_id
+  GROUP BY p.source, p.element_id, p.element_sub_id
 )
-SELECT z1.id, z1.zone_loc, ST_UNION(z2.zone_loc)
-FROM testzones z1, testzones z2
-WHERE ST_intersects(z1.zone_loc, z2.zone_loc)
-GROUP BY z1.id, z1.zone_loc;
+-- Step 2: Separate outer rings
+, outer_and_inners AS (
+  SELECT p.source, p.element_id, 
+         (ARRAY_AGG(new_ring_geom) 
+           FILTER (WHERE element_sub_id = 1))[1] AS new_outer_ring,
+		 COALESCE(
+		    ARRAY_AGG(new_ring_geom) FILTER (WHERE element_sub_id > 1), --maybe null or what we want
+		    (ARRAY_AGG(new_ring_geom))[0:-1] -- empty ring	
+		) as new_inner_rings
+  FROM ring_lines p
+  GROUP BY p.source, p.element_id
+)
+, polygons as (
+	-- Step 3: Reconstruct the polygons
+	SELECT p.source, p.element_id, 
+	       ST_MakePolygon(new_outer_ring, new_inner_rings) AS newgeom
+	FROM outer_and_inners p
+)
+, witnesspolygon as (
+	SELECT DISTINCT ON (p1.source, p1.element_id)
+	       p1.source, p1.element_id,
+		   p2.newgeom
+	FROM polygons p1, polygons p2
+    WHERE ST_intersects(p1.newgeom, p2.newgeom)
+	ORDER BY p1.source, p1.element_id, p2.newgeom
+)
+SELECT * FROM witnesspolygon
+UNION ALL
+-- get the singletons that did not intersect anything
+SELECT p.source, p.element_id, p.newgeom 
+FROM polygons p
+WHERE (p.source, p.element_id) NOT IN (
+  SELECT w.source, w.element_id FROM witnesspolygon w
+);
+
 
 -- show test output
- SELECT * FROM UnionEdges;
+SELECT newgeom FROM UnionZones;
