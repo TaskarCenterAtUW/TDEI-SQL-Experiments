@@ -9,9 +9,9 @@ CREATE OR REPLACE FUNCTION content.export_osm_xml(
 AS $BODY$
 DECLARE
     osm_output text;
+    operation_start_time timestamp;
 BEGIN
-    RAISE NOTICE 'processing datasettoexport() {%}', clock_timestamp();
-
+    operation_start_time := clock_timestamp();
     -- Create temporary table for datasettoexport
     CREATE TEMPORARY TABLE temp_datasettoexport (
         tdei_dataset_id TEXT PRIMARY KEY
@@ -21,8 +21,9 @@ BEGIN
     FROM content.dataset d
     WHERE d.tdei_dataset_id = dataset_id;
     CREATE INDEX idx_temp_datasettoexport ON temp_datasettoexport(tdei_dataset_id);
+    RAISE NOTICE 'processing datasettoexport() completed in {%}', clock_timestamp() - operation_start_time;
 
-    RAISE NOTICE 'processing temp_parsed_nodes() {%}', clock_timestamp();
+    operation_start_time := clock_timestamp();
     -- Create temporary table for parsed_nodes
     CREATE TEMPORARY TABLE temp_parsed_nodes (
         node_id VARCHAR,
@@ -42,8 +43,9 @@ BEGIN
     JOIN temp_datasettoexport d ON n.tdei_dataset_id = d.tdei_dataset_id;
     CREATE INDEX idx_temp_parsed_nodes_geom ON temp_parsed_nodes USING GIST (geom);
     CREATE INDEX idx_temp_parsed_nodes_node_id ON temp_parsed_nodes(node_id);
+    RAISE NOTICE 'processing temp_parsed_nodes() {%}', clock_timestamp() - operation_start_time;
 
-    RAISE NOTICE 'processing temp_raw_edges() {%}', clock_timestamp();
+    operation_start_time := clock_timestamp();
     -- Create temporary table for raw_edges
     CREATE TEMPORARY TABLE temp_raw_edges (
         edge_id VARCHAR,
@@ -56,8 +58,9 @@ BEGIN
     FROM content.edge e
     JOIN temp_datasettoexport d ON e.tdei_dataset_id = d.tdei_dataset_id;
     CREATE INDEX idx_temp_raw_edges_edge_id ON temp_raw_edges(edge_id);
+    RAISE NOTICE 'processing temp_raw_edges() {%}', clock_timestamp() - operation_start_time;
 
-    RAISE NOTICE 'processing temp_edge_points() {%}', clock_timestamp();
+    operation_start_time := clock_timestamp();
     -- Create temporary table for edge_points
     CREATE TEMPORARY TABLE temp_edge_points (
         edge_id VARCHAR,
@@ -77,8 +80,9 @@ BEGIN
         jsonb_array_elements(el.feature_json::jsonb #> '{geometry,coordinates}') WITH ORDINALITY AS coords(coords, coords_index);
     CREATE INDEX idx_temp_edge_points_edge_id ON temp_edge_points(edge_id);
     CREATE INDEX idx_temp_edge_points_geom ON temp_edge_points USING GIST (geom);
+    RAISE NOTICE 'processing temp_edge_points() {%}', clock_timestamp() - operation_start_time;
 
-    RAISE NOTICE 'processing temp_parsed_edge_points() {%}', clock_timestamp();
+    operation_start_time := clock_timestamp();
     -- Create temporary table for parsed_edge_points
     CREATE TEMPORARY TABLE temp_parsed_edge_points (
         edge_id VARCHAR,
@@ -102,8 +106,9 @@ BEGIN
         ON ST_DWithin(ST_SetSRID(ST_MakePoint(ep.lon::DOUBLE PRECISION, ep.lat::DOUBLE PRECISION), 4326), pn.geom, 1e-9);
     CREATE INDEX idx_temp_parsed_edge_points_edge_id ON temp_parsed_edge_points(edge_id);
     CREATE INDEX idx_temp_parsed_edge_points_final_node_id ON temp_parsed_edge_points(final_node_id);
+    RAISE NOTICE 'processing temp_parsed_edge_points() {%}', clock_timestamp() - operation_start_time;
 
-    RAISE NOTICE 'processing temp_extension_points() {%}', clock_timestamp();
+    operation_start_time := clock_timestamp();
     -- Create temporary table for extension_points
     CREATE TEMPORARY TABLE temp_extension_points (
         point_id VARCHAR,
@@ -120,8 +125,9 @@ BEGIN
     FROM content.extension_point n
     JOIN temp_datasettoexport d ON n.tdei_dataset_id = d.tdei_dataset_id;
     CREATE INDEX idx_temp_extension_points_point_id ON temp_extension_points(point_id);
+    RAISE NOTICE 'processing temp_extension_points() {%}', clock_timestamp() - operation_start_time;
 
-    RAISE NOTICE 'processing temp_parsed_extension_points() {%}', clock_timestamp();
+    operation_start_time := clock_timestamp();
     -- Create temporary table for parsed_extension_points
     CREATE TEMPORARY TABLE temp_parsed_extension_points (
         is_new BOOLEAN,
@@ -153,8 +159,9 @@ BEGIN
     LEFT JOIN temp_parsed_nodes pn
         ON pp.lat = pn.lat AND pp.lon = pn.lon;
     CREATE INDEX idx_temp_parsed_extension_points_final_node_id ON temp_parsed_extension_points(final_node_id);
+    RAISE NOTICE 'processing temp_parsed_extension_points() {%}', clock_timestamp() - operation_start_time;
 
-    RAISE NOTICE 'processing temp_raw_extension_lines() {%}', clock_timestamp();
+    operation_start_time := clock_timestamp();
     -- Create temporary table for raw_extension_lines
     CREATE TEMPORARY TABLE temp_raw_extension_lines (
         line_id VARCHAR,
@@ -167,8 +174,9 @@ BEGIN
     FROM content.extension_line el
     JOIN temp_datasettoexport d ON el.tdei_dataset_id = d.tdei_dataset_id;
     CREATE INDEX idx_temp_raw_extension_lines_line_id ON temp_raw_extension_lines(line_id);
+    RAISE NOTICE 'processing temp_raw_extension_lines() {%}', clock_timestamp() - operation_start_time;
 
-    RAISE NOTICE 'processing temp_extension_lines_points() {%}', clock_timestamp();
+    operation_start_time := clock_timestamp();
     -- Create temporary table for extension_lines_points
     CREATE TEMPORARY TABLE temp_extension_lines_points (
         line_id VARCHAR,
@@ -188,8 +196,9 @@ BEGIN
         jsonb_array_elements(el.feature_json #> '{geometry,coordinates}') WITH ORDINALITY AS coords(coords, coords_index);
     CREATE INDEX idx_temp_extension_lines_points_line_id ON temp_extension_lines_points(line_id);
     CREATE INDEX idx_temp_extension_lines_points_geom ON temp_extension_lines_points USING GIST (geom);
+    RAISE NOTICE 'processing temp_extension_lines_points() {%}', clock_timestamp() - operation_start_time;
 
-    RAISE NOTICE 'processing temp_parsed_extension_lines() {%}', clock_timestamp();
+    operation_start_time := clock_timestamp();
     -- Create temporary table for parsed_extension_lines
     CREATE TEMPORARY TABLE temp_parsed_extension_lines (
         line_id VARCHAR,
@@ -213,8 +222,9 @@ BEGIN
         ON ST_DWithin(ST_SetSRID(ST_MakePoint(ep.lon::DOUBLE PRECISION, ep.lat::DOUBLE PRECISION), 4326), pn.geom, 1e-9);
     CREATE INDEX idx_temp_parsed_extension_lines_line_id ON temp_parsed_extension_lines(line_id);
     CREATE INDEX idx_temp_parsed_extension_lines_final_node_id ON temp_parsed_extension_lines(final_node_id);
+    RAISE NOTICE 'processing temp_parsed_extension_lines() {%}', clock_timestamp() - operation_start_time;
 
-    RAISE NOTICE 'processing temp_extension_polygons() {%}', clock_timestamp();
+    operation_start_time := clock_timestamp();
     -- Create temporary table for extension_polygons
     CREATE TEMPORARY TABLE temp_extension_polygons (
         polygon_id VARCHAR,
@@ -227,8 +237,9 @@ BEGIN
     FROM content.extension_polygon p
     JOIN temp_datasettoexport d ON p.tdei_dataset_id = d.tdei_dataset_id;
     CREATE INDEX idx_temp_extension_polygons_polygon_id ON temp_extension_polygons(polygon_id);
+    RAISE NOTICE 'processing temp_extension_polygons() {%}', clock_timestamp() - operation_start_time;
 
-    RAISE NOTICE 'processing temp_single_ring_polygons() {%}', clock_timestamp();
+    operation_start_time := clock_timestamp();
     -- Create temporary table for single_ring_polygons
     CREATE TEMPORARY TABLE temp_single_ring_polygons (
         polygon_id VARCHAR,
@@ -253,8 +264,9 @@ BEGIN
     WHERE jsonb_array_length(pf.feature_json #> '{geometry,coordinates}') = 1;
     CREATE INDEX idx_temp_single_ring_polygons_polygon_id ON temp_single_ring_polygons(polygon_id);
     CREATE INDEX idx_temp_single_ring_polygons_geom ON temp_single_ring_polygons USING GIST (geom);
+    RAISE NOTICE 'processing temp_single_ring_polygons() {%}', clock_timestamp() - operation_start_time;
 
-    RAISE NOTICE 'processing temp_multi_ring_polygons() {%}', clock_timestamp();
+    operation_start_time := clock_timestamp();
     -- Create temporary table for multi_ring_polygons
     CREATE TEMPORARY TABLE temp_multi_ring_polygons (
         polygon_id VARCHAR,
@@ -280,8 +292,9 @@ BEGIN
     WHERE jsonb_array_length(pf.feature_json #> '{geometry,coordinates}') > 1;
     CREATE INDEX idx_temp_multi_ring_polygons_polygon_id ON temp_multi_ring_polygons(polygon_id);
     CREATE INDEX idx_temp_multi_ring_polygons_geom ON temp_multi_ring_polygons USING GIST (geom);
+    RAISE NOTICE 'processing temp_multi_ring_polygons() {%}', clock_timestamp() - operation_start_time;
 
-    RAISE NOTICE 'processing temp_flattened_polygon_coords() {%}', clock_timestamp();
+    operation_start_time := clock_timestamp();
     -- Create temporary table for flattened_polygon_coords
     CREATE TEMPORARY TABLE temp_flattened_polygon_coords (
         polygon_id VARCHAR,
@@ -298,8 +311,9 @@ BEGIN
     SELECT * FROM temp_multi_ring_polygons;
     CREATE INDEX idx_temp_flattened_polygon_coords_polygon_id ON temp_flattened_polygon_coords(polygon_id);
     CREATE INDEX idx_temp_flattened_polygon_coords_geom ON temp_flattened_polygon_coords USING GIST (geom);
+    RAISE NOTICE 'processing temp_flattened_polygon_coords() {%}', clock_timestamp() - operation_start_time;
 
-    RAISE NOTICE 'processing temp_parsed_extension_polygons() {%}', clock_timestamp();
+    operation_start_time := clock_timestamp();
     -- Create temporary table for parsed_extension_polygons
     CREATE TEMPORARY TABLE temp_parsed_extension_polygons (
         polygon_id VARCHAR,
@@ -322,8 +336,9 @@ BEGIN
         ON ST_DWithin(pn.geom, ST_SetSRID(ST_MakePoint(fc.lon::DOUBLE PRECISION, fc.lat::DOUBLE PRECISION), 4326), 1e-9);
     CREATE INDEX idx_temp_parsed_extension_polygons_polygon_id ON temp_parsed_extension_polygons(polygon_id);
     CREATE INDEX idx_temp_parsed_extension_polygons_final_node_id ON temp_parsed_extension_polygons(final_node_id);
+    RAISE NOTICE 'processing temp_parsed_extension_polygons() {%}', clock_timestamp() - operation_start_time;
 
-    RAISE NOTICE 'processing temp_single_ring_zones() {%}', clock_timestamp();
+    operation_start_time := clock_timestamp();
     -- Create temporary table for single_ring_zones
     CREATE TEMPORARY TABLE temp_single_ring_zones (
         zone_id VARCHAR,
@@ -349,8 +364,9 @@ BEGIN
     WHERE jsonb_array_length(z.feature::jsonb #> '{geometry,coordinates}') = 1;
     CREATE INDEX idx_temp_single_ring_zones_zone_id ON temp_single_ring_zones(zone_id);
     CREATE INDEX idx_temp_single_ring_zones_geom ON temp_single_ring_zones USING GIST (geom);
+    RAISE NOTICE 'processing temp_single_ring_zones() {%}', clock_timestamp() - operation_start_time;
 
-	RAISE NOTICE 'processing temp_parsed_zones() {%}', clock_timestamp();
+    operation_start_time := clock_timestamp();
 	CREATE TEMPORARY TABLE temp_parsed_zones (
         zone_id VARCHAR,
         node_ids TEXT[],
@@ -369,8 +385,9 @@ BEGIN
     FROM content.zone z
     JOIN temp_datasettoexport d ON z.tdei_dataset_id = d.tdei_dataset_id;
     CREATE INDEX idx_temp_parsed_zones_zone_id ON temp_parsed_zones(zone_id);
+	RAISE NOTICE 'processing temp_parsed_zones() {%}', clock_timestamp() - operation_start_time;
 	
-    RAISE NOTICE 'processing temp_multi_ring_zones() {%}', clock_timestamp();
+    operation_start_time := clock_timestamp();
     -- Create temporary table for multi_ring_zones
     CREATE TEMPORARY TABLE temp_multi_ring_zones (
         zone_id VARCHAR,
@@ -397,8 +414,9 @@ BEGIN
     WHERE jsonb_array_length(z.feature::jsonb #> '{geometry,coordinates}') > 1;
     CREATE INDEX idx_temp_multi_ring_zones_zone_id ON temp_multi_ring_zones(zone_id);
     CREATE INDEX idx_temp_multi_ring_zones_geom ON temp_multi_ring_zones USING GIST (geom);
+    RAISE NOTICE 'processing temp_multi_ring_zones() {%}', clock_timestamp() - operation_start_time;
 
-    RAISE NOTICE 'processing temp_flattened_zone_coords() {%}', clock_timestamp();
+    operation_start_time := clock_timestamp();
     -- Create temporary table for flattened_zone_coords
     CREATE TEMPORARY TABLE temp_flattened_zone_coords (
         zone_id VARCHAR,
@@ -415,8 +433,9 @@ BEGIN
     SELECT * FROM temp_multi_ring_zones;
     CREATE INDEX idx_temp_flattened_zone_coords_zone_id ON temp_flattened_zone_coords(zone_id);
     CREATE INDEX idx_temp_flattened_zone_coords_geom ON temp_flattened_zone_coords USING GIST (geom);
+    RAISE NOTICE 'processing temp_flattened_zone_coords() {%}', clock_timestamp() - operation_start_time;
 
-    RAISE NOTICE 'processing temp_parsed_zone_polygons() {%}', clock_timestamp();
+    operation_start_time := clock_timestamp();
     -- Create temporary table for parsed_zone_polygons
     CREATE TEMPORARY TABLE temp_parsed_zone_polygons (
         zone_id VARCHAR,
@@ -439,8 +458,9 @@ BEGIN
         ON ST_DWithin(pn.geom, ST_SetSRID(ST_MakePoint(fc.lon::DOUBLE PRECISION, fc.lat::DOUBLE PRECISION), 4326), 1e-9);
     CREATE INDEX idx_temp_parsed_zone_polygons_zone_id ON temp_parsed_zone_polygons(zone_id);
     CREATE INDEX idx_temp_parsed_zone_polygons_final_node_id ON temp_parsed_zone_polygons(final_node_id);
+    RAISE NOTICE 'processing temp_parsed_zone_polygons() {%}', clock_timestamp() - operation_start_time;
 
-    RAISE NOTICE 'processing temp_all_nodes() {%}', clock_timestamp();
+    operation_start_time := clock_timestamp();
     -- Create temporary table for all_nodes
     CREATE TEMPORARY TABLE temp_all_nodes (
         node_id VARCHAR,
@@ -468,8 +488,9 @@ BEGIN
     FROM temp_parsed_edge_points;
     CREATE INDEX idx_temp_all_nodes_lat_lon ON temp_all_nodes(lat, lon);
     CREATE INDEX idx_temp_all_nodes_node_id ON temp_all_nodes(node_id);
+    RAISE NOTICE 'processing temp_all_nodes() {%}', clock_timestamp() - operation_start_time;
 
-    RAISE NOTICE 'processing temp_deduplicated_nodes() {%}', clock_timestamp();
+    operation_start_time := clock_timestamp();
     -- Create temporary table for deduplicated_nodes
     CREATE TEMPORARY TABLE temp_deduplicated_nodes (
         node_id VARCHAR,
@@ -519,8 +540,9 @@ BEGIN
     GROUP BY lat, lon;
     CREATE INDEX idx_temp_deduplicated_nodes_node_id ON temp_deduplicated_nodes(node_id);
     CREATE INDEX idx_temp_deduplicated_nodes_lat_lon ON temp_deduplicated_nodes(lat, lon);
+    RAISE NOTICE 'processing temp_deduplicated_nodes() {%}', clock_timestamp() - operation_start_time;
 
-    RAISE NOTICE 'processing temp_node_blocks() {%}', clock_timestamp();
+    operation_start_time := clock_timestamp();
     -- Create temporary table for node_blocks
     CREATE TEMPORARY TABLE temp_node_blocks (
         line TEXT
@@ -541,8 +563,9 @@ BEGIN
             ELSE '<node visible="true" id="' || node_id || '" lat="' || lat || '" lon="' || lon || '"/>'
         END AS line
     FROM temp_deduplicated_nodes;
+    RAISE NOTICE 'processing temp_node_blocks() {%}', clock_timestamp() - operation_start_time;
 
-    RAISE NOTICE 'processing temp_edge_way_blocks() {%}', clock_timestamp();
+    operation_start_time := clock_timestamp();
     -- Create temporary table for edge_way_blocks
     CREATE TEMPORARY TABLE temp_edge_way_blocks (
         edge_id VARCHAR,
@@ -596,8 +619,9 @@ BEGIN
     FROM temp_parsed_edge_points pep
     GROUP BY pep.edge_id;
     CREATE INDEX idx_temp_edge_way_blocks_edge_id ON temp_edge_way_blocks(edge_id);
+    RAISE NOTICE 'processing temp_edge_way_blocks() {%}', clock_timestamp() - operation_start_time;
 
-    RAISE NOTICE 'processing temp_polygon_way_blocks() {%}', clock_timestamp();
+    operation_start_time := clock_timestamp();
     -- Create temporary table for polygon_way_blocks
     CREATE TEMPORARY TABLE temp_polygon_way_blocks (
         polygon_id VARCHAR,
@@ -650,8 +674,9 @@ BEGIN
     FROM temp_parsed_extension_polygons pep
     GROUP BY pep.polygon_id, is_multipolygon, ring_index;
     CREATE INDEX idx_temp_polygon_way_blocks_polygon_id ON temp_polygon_way_blocks(polygon_id);
+    RAISE NOTICE 'processing temp_polygon_way_blocks() {%}', clock_timestamp() - operation_start_time;
 
-    RAISE NOTICE 'processing temp_polygon_relation_blocks() {%}', clock_timestamp();
+    operation_start_time := clock_timestamp();
     -- Create temporary table for polygon_relation_blocks
     CREATE TEMPORARY TABLE temp_polygon_relation_blocks (
         polygon_id VARCHAR,
@@ -688,8 +713,9 @@ BEGIN
     WHERE is_multipolygon
     GROUP BY pep.polygon_id;
     CREATE INDEX idx_temp_polygon_relation_blocks_polygon_id ON temp_polygon_relation_blocks(polygon_id);
+    RAISE NOTICE 'processing temp_polygon_relation_blocks() {%}', clock_timestamp() - operation_start_time;
 
-    RAISE NOTICE 'processing temp_zone_way_blocks() {%}', clock_timestamp();
+    operation_start_time := clock_timestamp();
     -- Create temporary table for zone_way_blocks
     CREATE TEMPORARY TABLE temp_zone_way_blocks (
         zone_id VARCHAR,
@@ -744,8 +770,9 @@ BEGIN
     FROM temp_parsed_zone_polygons pzp
     GROUP BY pzp.zone_id, is_multipolygon, ring_index;
     CREATE INDEX idx_temp_zone_way_blocks_zone_id ON temp_zone_way_blocks(zone_id);
+    RAISE NOTICE 'processing temp_zone_way_blocks() {%}', clock_timestamp() - operation_start_time;
 
-    RAISE NOTICE 'processing temp_zone_relation_blocks() {%}', clock_timestamp();
+    operation_start_time := clock_timestamp();
     -- Create temporary table for zone_relation_blocks
     CREATE TEMPORARY TABLE temp_zone_relation_blocks (
         zone_id VARCHAR,
@@ -794,8 +821,9 @@ BEGIN
     WHERE is_multipolygon
     GROUP BY pzp.zone_id;
     CREATE INDEX idx_temp_zone_relation_blocks_zone_id ON temp_zone_relation_blocks(zone_id);
+    RAISE NOTICE 'processing temp_zone_relation_blocks() {%}', clock_timestamp() - operation_start_time;
 
-    RAISE NOTICE 'processing temp_extension_lines_way_blocks() {%}', clock_timestamp();
+    operation_start_time := clock_timestamp();
     -- Create temporary table for extension_lines_way_blocks
     CREATE TEMPORARY TABLE temp_extension_lines_way_blocks (
         line_id VARCHAR,
@@ -836,8 +864,9 @@ BEGIN
     FROM temp_parsed_extension_lines pel
     GROUP BY pel.line_id;
     CREATE INDEX idx_temp_extension_lines_way_blocks_line_id ON temp_extension_lines_way_blocks(line_id);
+    RAISE NOTICE 'processing temp_extension_lines_way_blocks() {%}', clock_timestamp() - operation_start_time;
 
-    RAISE NOTICE 'processing temp_exportdata() {%}', clock_timestamp();
+    operation_start_time := clock_timestamp();
     -- Create temporary table for exportdata
     CREATE TEMPORARY TABLE temp_exportdata (
         line TEXT
@@ -864,6 +893,7 @@ BEGIN
     -- Aggregate the final output
     SELECT string_agg(line, E'\n') INTO osm_output
     FROM temp_exportdata;
+    RAISE NOTICE 'processing temp_exportdata() {%}', clock_timestamp() - operation_start_time;
 
     RETURN osm_output;
 END;
