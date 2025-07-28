@@ -36,7 +36,7 @@
 DROP FUNCTION IF EXISTS content.export_osm_xml(text);
 
 CREATE OR REPLACE FUNCTION content.export_osm_xml(
-    dataset_id text)
+	dataset_id text)
     RETURNS text
     LANGUAGE 'plpgsql'
     COST 100
@@ -155,7 +155,10 @@ BEGIN
         pn.node_id IS NULL AS is_new
     FROM temp_edge_points ep
     LEFT JOIN temp_parsed_nodes pn
-        ON ST_DWithin(ST_SetSRID(ST_MakePoint(ep.lon::DOUBLE PRECISION, ep.lat::DOUBLE PRECISION), 4326), pn.geom, 1e-9);
+	    -- ON ST_DWithin(ST_SetSRID(ST_MakePoint(ep.lon::DOUBLE PRECISION, ep.lat::DOUBLE PRECISION), 4326), pn.geom, 1e-9);
+        -- ON ST_DWithin(ep.geom, pn.geom, 1e-9);
+		ON ROUND(ep.lat::NUMERIC, 7) = ROUND(pn.lat, 7)
+    AND ROUND(ep.lon::NUMERIC, 7) = ROUND(pn.lon, 7);
     -- Index on edge_id for grouping
     -- Reason: Optimizes grouping by edge_id for way creation
     CREATE INDEX idx_temp_parsed_edge_points_edge_id ON temp_parsed_edge_points(edge_id);
@@ -592,22 +595,76 @@ BEGIN
         feature_json JSONB
     ) ON COMMIT DROP;
     INSERT INTO temp_all_nodes
-    SELECT node_id, ROUND(lat::NUMERIC, 7), ROUND(lon::NUMERIC, 7), feature_json
+    SELECT node_id, CASE 
+    WHEN position('.' IN lat::TEXT) > 0 AND length(split_part(lat::TEXT, '.', 2)) > 7
+      THEN ROUND(lat::NUMERIC, 7)
+    ELSE lat::NUMERIC
+  END AS lat,
+  CASE 
+    WHEN position('.' IN lon::TEXT) > 0 AND length(split_part(lon::TEXT, '.', 2)) > 7
+      THEN ROUND(lon::NUMERIC, 7)
+    ELSE lon::NUMERIC
+  END AS lon,  feature_json
     FROM temp_parsed_nodes
     UNION ALL
-    SELECT final_node_id AS node_id, ROUND(lat::NUMERIC, 7), ROUND(lon::NUMERIC, 7), feature_json
+    SELECT final_node_id AS node_id, CASE 
+    WHEN position('.' IN lat::TEXT) > 0 AND length(split_part(lat::TEXT, '.', 2)) > 7
+      THEN ROUND(lat::NUMERIC, 7)
+    ELSE lat::NUMERIC
+  END AS lat,
+  CASE 
+    WHEN position('.' IN lon::TEXT) > 0 AND length(split_part(lon::TEXT, '.', 2)) > 7
+      THEN ROUND(lon::NUMERIC, 7)
+    ELSE lon::NUMERIC
+  END AS lon, feature_json
     FROM temp_parsed_extension_points
     UNION ALL
-    SELECT final_node_id AS node_id, ROUND(lat::NUMERIC, 7), ROUND(lon::NUMERIC, 7), NULL::JSONB AS feature_json
+    SELECT final_node_id AS node_id, CASE 
+    WHEN position('.' IN lat::TEXT) > 0 AND length(split_part(lat::TEXT, '.', 2)) > 7
+      THEN ROUND(lat::NUMERIC, 7)
+    ELSE lat::NUMERIC
+  END AS lat,
+  CASE 
+    WHEN position('.' IN lon::TEXT) > 0 AND length(split_part(lon::TEXT, '.', 2)) > 7
+      THEN ROUND(lon::NUMERIC, 7)
+    ELSE lon::NUMERIC
+  END AS lon, NULL::JSONB AS feature_json
     FROM temp_parsed_extension_polygons
     UNION ALL
-    SELECT final_node_id AS node_id, ROUND(lat::NUMERIC, 7), ROUND(lon::NUMERIC, 7), NULL::JSONB AS feature_json
+    SELECT final_node_id AS node_id, CASE 
+    WHEN position('.' IN lat::TEXT) > 0 AND length(split_part(lat::TEXT, '.', 2)) > 7
+      THEN ROUND(lat::NUMERIC, 7)
+    ELSE lat::NUMERIC
+  END AS lat,
+  CASE 
+    WHEN position('.' IN lon::TEXT) > 0 AND length(split_part(lon::TEXT, '.', 2)) > 7
+      THEN ROUND(lon::NUMERIC, 7)
+    ELSE lon::NUMERIC
+  END AS lon, NULL::JSONB AS feature_json
     FROM temp_parsed_zone_polygons
     UNION ALL
-    SELECT final_node_id AS node_id, ROUND(lat::NUMERIC, 7), ROUND(lon::NUMERIC, 7), NULL::JSONB AS feature_json
+    SELECT final_node_id AS node_id, CASE 
+    WHEN position('.' IN lat::TEXT) > 0 AND length(split_part(lat::TEXT, '.', 2)) > 7
+      THEN ROUND(lat::NUMERIC, 7)
+    ELSE lat::NUMERIC
+  END AS lat,
+  CASE 
+    WHEN position('.' IN lon::TEXT) > 0 AND length(split_part(lon::TEXT, '.', 2)) > 7
+      THEN ROUND(lon::NUMERIC, 7)
+    ELSE lon::NUMERIC
+  END AS lon, NULL::JSONB AS feature_json
     FROM temp_parsed_extension_lines
     UNION ALL
-    SELECT final_node_id AS node_id, ROUND(lat::NUMERIC, 7), ROUND(lon::NUMERIC, 7), NULL::JSONB AS feature_json
+    SELECT final_node_id AS node_id, CASE 
+    WHEN position('.' IN lat::TEXT) > 0 AND length(split_part(lat::TEXT, '.', 2)) > 7
+      THEN ROUND(lat::NUMERIC, 7)
+    ELSE lat::NUMERIC
+  END AS lat,
+  CASE 
+    WHEN position('.' IN lon::TEXT) > 0 AND length(split_part(lon::TEXT, '.', 2)) > 7
+      THEN ROUND(lon::NUMERIC, 7)
+    ELSE lon::NUMERIC
+  END AS lon, NULL::JSONB AS feature_json
     FROM temp_parsed_edge_points;
     -- Index on lat, lon for deduplication
     -- Reason: Optimizes grouping by coordinates for node deduplication
@@ -737,18 +794,18 @@ BEGIN
             ),
             ''
         ) ||
-        CASE
-            WHEN (
-                 SELECT 
-                (z.feature_json->'properties'->>'highway' = 'pedestrian')
-                AND (z.feature_json->'properties'->>'surface' = 'paving_stones')
-                FROM temp_raw_edges z
-                WHERE z.edge_id = pep.edge_id
-                LIMIT 1
-            ) 
-            THEN '<tag k="area" v="yes"/>'
-            ELSE ''
-        END ||
+        -- CASE
+        --     WHEN (
+        --          SELECT 
+        --         (z.feature_json->'properties'->>'highway' = 'pedestrian')
+        --         AND (z.feature_json->'properties'->>'surface' = 'paving_stones')
+        --         FROM temp_raw_edges z
+        --         WHERE z.edge_id = pep.edge_id
+        --         LIMIT 1
+        --     ) 
+        --     THEN '<tag k="area" v="yes"/>'
+        --     ELSE ''
+        -- END ||
         '</way>' AS line
     FROM temp_parsed_edge_points pep
     GROUP BY pep.edge_id;
