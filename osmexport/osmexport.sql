@@ -33,17 +33,17 @@
  */
 
 -- Drop the function if it exists to ensure a clean redefinition
-DROP FUNCTION IF EXISTS content.export_osm_xml(text);
+-- DROP FUNCTION IF EXISTS content.export_osm_xml(text);
 
 CREATE OR REPLACE FUNCTION content.export_osm_xml(
 	dataset_id text)
-    RETURNS text
+    RETURNS SETOF TEXT
     LANGUAGE 'plpgsql'
     COST 100
     VOLATILE PARALLEL UNSAFE
 AS $BODY$
 DECLARE
-    osm_output text;
+    line_ex TEXT;
     operation_start_time timestamp;
 BEGIN
     operation_start_time := clock_timestamp();
@@ -1088,12 +1088,17 @@ BEGIN
     SELECT line FROM temp_zone_relation_blocks
     UNION ALL
     SELECT '</osm>' AS line;
-    -- Aggregate the final output
-    SELECT string_agg(line, E'\n') INTO osm_output
-    FROM temp_exportdata;
+
+	-- Open one cursor on the ordered data
+   -- Return each line in order (you can adjust ORDER BY to your needs)
+    FOR line_ex IN
+        SELECT line FROM temp_exportdata ORDER BY ctid
+    LOOP
+        RETURN NEXT line_ex;
+    END LOOP;
     RAISE NOTICE 'processing temp_exportdata() {%}', clock_timestamp() - operation_start_time;
 
-    RETURN osm_output;
+    RETURN;
 END;
 $BODY$;
 
